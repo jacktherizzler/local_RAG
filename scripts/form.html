@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>faq chatbot</title>
+</head>
+<body>
+    <h1>altibbe health faq chatbot</h1>
+    <form id="faqForm" action="http://localhost:5678/webhook/436ca65c-46ca-4f8c-86e2-b8633b428eea" method="POST">
+        <label for="message">ask a question</label><br>
+        <input type="text" id="message" name="message" required><br>
+        <button type="submit">submit</button>
+    </form>
+    <div id="response"></div>
+    <script>
+        document.getElementById("faqForm").addEventListener("submit", async (e) => {
+            e.preventDefault()
+            const message = document.getElementById("message").value
+            const response = await fetch("http://localhost:5678/webhook/436ca65c-46ca-4f8c-86e2-b8633b428eea", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message })
+            })
+            const data = await response.json()
+            document.getElementById("response").innerText = data.response || "no response"
+        })
+    </script>
+</body>
+</html>
