@@ -1,0 +1,1094 @@
+{
+  "name": "local_RAG",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "4b827773-60b5-40b8-a9f3-76aa6d5702b3",
+      "name": "When clicking ‘Test workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "id": "dfec82c3-7cc0-4c5c-8cc2-b4156c9c6735",
+      "name": "Extract from File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const chunks = [];\nconst chunkSize = 1000;\nconst chunkOverlap = 200;\nconst text = $('Extract from File').item.json.text.replace(/\\n/, '');\n\nfor (let i=0,j=Math.round(text.length/chunkSize)+1;i<j;i++) {\n  chunks.push(\n    text.substr(\n      Math.max(0,(i * chunkSize)-chunkOverlap),\n      chunkSize\n    )\n  );\n}\n\nreturn { chunks };"
+      },
+      "id": "6524ae21-17e1-4178-aaa9-25de84126ceb",
+      "name": "Create Chunks From Doc",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{\n{\n  \"content\": `${$json.text }\\n---\\n${$json.chunk}`\n}\n}}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "title",
+                "value": "={{ $json.title }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "44308c18-9cf1-48ef-82ef-aee43d56f397",
+      "name": "Default Data Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "chunkSize": 2000,
+        "options": {}
+      },
+      "id": "3ea0c330-40a9-45f1-8d3e-0953699240c4",
+      "name": "Recursive Character Text Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "9bf2459d-f543-42cd-8186-eac3ca541a61",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        280,
+        1300
+      ],
+      "webhookId": "436ca65c-46ca-4f8c-86e2-b8633b428eea"
+    },
+    {
+      "parameters": {},
+      "id": "3597ea33-49a3-4df2-8f1a-4063e0ac1831",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [
+        600,
+        1480
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Split Document Into Chunks\nUnlike traditional vector store workflows, we want to split our document prior to embedding and this is easily achieved using the Code node. Feel free to adjust the text splitting params or replace it entirely to suit the needs of your data.\n\nYou may need to play around and adjust the chunksize for your particular data. Contextual retrieval as described in the article is expected to return 20 results so best to keep these small.",
+        "height": 513.3089035768523,
+        "width": 553.1909664515983,
+        "color": 7
+      },
+      "id": "047b1c19-dcea-40c0-9ad1-c937b853fe31",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        980,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Generate Sparse Vector and Contextual Text For Chunk\nWith our chunks, we'll want to achieve the following:\n(1) **Generate a contextual summary of what the chunk is about relative to the whole document**.\nFor this, we'll use the basic LLM node using Antrophic's Claude Haiku model with the recommended prompt as shared in the article.\n(2) **Generate a sparse vector for the chunk and summary**\nWe can use the python code node to generate TF-IDF sparse vectors with the scikit-learn library. Good to know, this library doesn't require external dependency setup steps and auto-installs on first time use.\n\nOnce we have our generated values, we'll combine them with the chunk object using the Edit Fields node.",
+        "height": 748.1255853485875,
+        "width": 1019.742667955435,
+        "color": 7
+      },
+      "id": "e0e25c27-cc5c-46ae-9e07-4f78b340ffbb",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1580,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 4. Insert Docs to Qdrant (via Langchain Code Node)\nUnfortunately, n8n (or rather langchain) doesn't support inserting sparse vectors so we'll have to build our own \"Insert Documents\" node using a Langchain Code Node. In this Langchain code node, we'll forego the langchain vectorstore node and use the Qdrant client SDK directly instead.\n\n**Note** To avoid duplication, this node will also delete existing vectors by document title. It does so by tagging each vector with the document title we extracted earlier then when run again, performs a Qdrant delete by filter before upserting.\n\n**Required:**\nTo use this demonstration, you must complete the following:\n* Ensure your Qdrant instance is running and set the URL in the node\n* Create the Qdrant collection as instructed (see yellow sticky)\n",
+        "height": 783.6896392386983,
+        "width": 828.7526122872351,
+        "color": 7
+      },
+      "id": "10ab6d3f-d320-4c0e-bee4-d59620551a5c",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        2620,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 5. Retrieval using Sparse Vectors and ReRanker (Chat Agent Example)\nFor retrieval, we want to be able to (1) query with both dense and sparse vectors and (2) apply a rerank algorithm to our vector store docs. We can setup a custom vector store tool which does both using a custom Langchain Code node.\n\n**Required:**\nTo use this demonstration, you must complete the following:\n* Installed the updated version of the @Qdrant/js-client-rest module\n* Ensure your Qdrant instance is running and set the URL in the \"Qdrant with Cohere ReRank\" subnode\n* Add your Cohere API key in the \"Qdrant with Cohere ReRank\" subnode.",
+        "height": 828.8619472986827,
+        "width": 973.8052093023243,
+        "color": 7
+      },
+      "id": "20565232-953f-438a-aa5c-5e5b381b38d0",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        140,
+        1000
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "3b03e036-aa48-4ea6-ad6a-e0eb47374f1a",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        1220,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "name": "get_sparse_vector",
+        "description": "Generates TD-IDF sparse vector for query",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $workflow.id }}",
+          "mode": "id"
+        },
+        "fields": {
+          "values": [
+            {
+              "name": "route",
+              "stringValue": "get_sparse_vectors"
+            }
+          ]
+        }
+      },
+      "id": "35c87003-9384-48ac-a9c4-da642baca683",
+      "name": "Get Sparse Vector Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        900,
+        1620
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "87bc3071-4179-4aed-aa88-37c6381d8b73",
+              "name": "query",
+              "value": "Who created Bitcoin?",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "be873873-a7da-42fb-b509-727f7c026edf",
+      "name": "Query",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "name": "get_sparse_vector",
+        "description": "Generates TD-IDF sparse vector for query",
+        "workflowId": {
+          "__rl": true,
+          "value": "={{ $workflow.id }}",
+          "mode": "id"
+        }
+      },
+      "id": "ebe89c42-6ce0-4c55-a0a6-ef5c36844cc6",
+      "name": "Get Sparse Vector Tool1",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1700,
+        1460
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 6. Retrieval using Sparse Vectors and ReRanker (Retrieval Example)\nThis demonstration is similar to the previous step but is not using an AI Agent.\n\n**Required:**\nTo use this demonstration, you must complete the following:\n* Installed the updated version of the @Qdrant/js-client-rest module\n* Ensure your Qdrant instance is running and set the URL in the \"Qdrant with Cohere ReRank1\" node\n* Add your Cohere API key in the \"Qdrant with Cohere ReRank1\" node.",
+        "height": 683.3722976015338,
+        "width": 838.4124151865863,
+        "color": 7
+      },
+      "id": "12bf41bd-890b-4113-811c-a63d2312db32",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1140,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Create Collection!\nYou need to create a Qdrant Collection as follows:\n\n* Go to http[s]:\\//<qdrant_url>/dashboard#/console\nIf you are hosting locally, this is usually http://localhost:6333/dashboard#/console\n* Copy the following into the left panel. This will tell Qdrant to create a new collection called “contextual_retrieval_example”. You can change this of course but you’ll also need to change all “collectionName” references in the template as well!\n\n```\nPUT collections/contextual_retrieval_example\n{\n  \"vectors\": {\n    \"default\": {\n      \"distance\": \"Cosine\",\n      \"size\": 1024\n    }\n  },\n  \"sparse_vectors\": {\n    \"bm42\": {\n      \"modifier\": \"idf\"\n    }\n  }\n}\n```",
+        "height": 505.701259707935,
+        "width": 516.3129732020735
+      },
+      "id": "66a2a214-d7cc-471a-8eef-24f53814f8ed",
+      "name": "Sticky Note5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3340,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "chunks",
+        "options": {
+          "destinationFieldName": "chunk"
+        }
+      },
+      "id": "5c7a2c0d-8a7f-47b8-889c-da14f7d8966a",
+      "name": "Chunks To List",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "python",
+        "pythonCode": "texts = [f\"{_('Generate Contextual Text').item.json.text}\\n---\\n{_('Chunks To List').item.json.chunk}\"]\n\nfrom sklearn.feature_extraction.text import TfidfVectorizer\n\n# Create TF-IDF vectorizer\nvectorizer = TfidfVectorizer()\n\n# Fit and transform the texts to generate TF-IDF vectors\nX = vectorizer.fit_transform(texts)\n\nreturn {\n  \"sparse\": {\n    \"indices\": X.indices.tolist(),\n    \"values\": X.data.tolist()\n  }\n}"
+      },
+      "id": "97a95248-eb98-46d7-b551-f93a4ee5e4bd",
+      "name": "Generate TF-IDF Sparse Vectors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "069d067c-3534-4939-8ff4-34dee02a9436",
+              "name": "chunk",
+              "value": "={{ $('Chunks To List').item.json.chunk }}",
+              "type": "string"
+            },
+            {
+              "id": "24e01f4f-e156-47e9-a89e-9cbdccda6bd4",
+              "name": "text",
+              "value": "={{ $('Generate Contextual Text').item.json.text }}",
+              "type": "string"
+            },
+            {
+              "id": "fa48ddaa-4658-463a-b1af-8308c24e325a",
+              "name": "sparse",
+              "value": "={{ $json.sparse }}",
+              "type": "object"
+            },
+            {
+              "id": "442efe87-a826-402c-aadc-909923915d30",
+              "name": "title",
+              "value": "={{ $('Get Doc Attributes').first().json.output.title }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "19f9ea07-d08e-4a42-998e-b65af51c05b1",
+      "name": "Get Values",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2380,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "python",
+        "pythonCode": "import json\nfrom sklearn.feature_extraction.text import TfidfVectorizer\n\n# Create TF-IDF vectorizer\nvectorizer = TfidfVectorizer()\n\n# Fit and transform the texts to generate TF-IDF vectors\ntexts = [_input.item.json.query]\nX = vectorizer.fit_transform(texts)\n\nreturn {\n  \"response\": {\n    \"indices\": X.indices.tolist(),\n    \"values\": X.data.tolist()\n  }\n}"
+      },
+      "id": "42c84cd5-ef53-4d2f-99b5-c1b3a63bbda4",
+      "name": "Generate Sparse Vectors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1620,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### PART 1 of 2\nThis part generates and inserts into the vector store. You only have to do this once per document.",
+        "height": 102.577757187954,
+        "width": 389.2978313113204,
+        "color": 5
+      },
+      "id": "b537ee81-2e67-4dcc-b4da-c2fab9d40b5c",
+      "name": "Sticky Note8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        140,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### PART 2 of 2\nThis part demostrates 2 examples of retrieve or query your sparse vectors.",
+        "height": 80,
+        "width": 524.5591143796955,
+        "color": 5
+      },
+      "id": "c43a33b5-f4ce-4c07-9083-bd9fbd3e9399",
+      "name": "Sticky Note9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "get_sparse_vectors",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "get sparse vectors"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "84ac9b84-0e46-45da-b719-843d947ea429",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "my_other_thing",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "my other thing"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "0cf5c7bc-b98f-4370-8832-12131e327ccc",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1380,
+        1820
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=<document> \n{{ $('Extract from File').first().json.text }} \n</document>\nHere is the chunk we want to situate within the whole document \n<chunk> \n{{ $json.chunk }}\n</chunk> \nPlease give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else. "
+      },
+      "id": "05da0349-66d5-4e62-9a3f-f60760144220",
+      "name": "Generate Contextual Text",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1860,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "d16c88a0-8a71-4306-8735-bfd866a09351",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        480,
+        1300
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Sparse Vector Tool for Agent\nUnfortunately there is a bug linking code tool to custom langchain code node so this is the only approach until that is fixed!",
+        "height": 287.1680736478712,
+        "width": 652.0156501726113,
+        "color": 6
+      },
+      "id": "26af9bfc-ed8d-4a74-8213-3cc5ab7e72ef",
+      "name": "Sticky Note7",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        1720
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://bitcoin.org/bitcoin.pdf",
+        "options": {}
+      },
+      "id": "df67f792-0088-4ba9-b416-3404397e7317",
+      "name": "Get Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "attributes": {
+          "attributes": [
+            {
+              "name": "title",
+              "description": "The title of the document.",
+              "required": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c402c20b-f723-4768-91b1-51ac4a7d349f",
+      "name": "Get Doc Attributes",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1,
+      "position": [
+        600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 1. Import Document PDF\n\nWe need to input the address to the document we want to add to the knowledge base ",
+        "height": 513.3089035768523,
+        "width": 807.2147979360316,
+        "color": 7
+      },
+      "id": "2858f7ae-d9ca-4138-ac24-e898ab5693a8",
+      "name": "Sticky Note10",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        140,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "model": "llama3.1:8b",
+        "options": {}
+      },
+      "id": "b6576fa8-add9-4141-a008-388516f4ebeb",
+      "name": "Ollama Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        600,
+        580
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama3.1:8b",
+        "options": {}
+      },
+      "id": "a0f27ee6-2c2e-4842-9725-1ab4b56e61c4",
+      "name": "Ollama Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        1860,
+        760
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:latest"
+      },
+      "id": "8851fbe0-b9bc-4a91-848b-1dc8d8aec80e",
+      "name": "Embeddings Ollama",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        2800,
+        680
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest"
+      },
+      "id": "5a1aed22-19a7-4ec6-8fb7-5493c993f190",
+      "name": "Embeddings Ollama1",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        720,
+        1620
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "nomic-embed-text:latest"
+      },
+      "id": "8ee4f445-306c-4272-9182-d49f6d98a936",
+      "name": "Embeddings Ollama2",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOllama",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        1460
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama3.2:latest",
+        "options": {}
+      },
+      "id": "fc30e0aa-1df7-4d1e-a809-5810e3beebe6",
+      "name": "Ollama Chat Model2",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        480,
+        1480
+      ],
+      "credentials": {
+        "ollamaApi": {
+          "id": "jQJTTE26I1j4F9bb",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "code": {
+          "supplyData": {
+            "code": "const { QdrantClient } = require('@qdrant/js-client-rest');\nconst { BM25Retriever } = require(\"@langchain/community/retrievers/bm25\");\nconst { DynamicTool } = require(\"@langchain/core/tools\");\n\n// 1. Tool Config\nconst name = 'bitcoin_whitepaper_tool';\nconst description = 'Call this tool to get information and/or context from the Bitcoin Whitepaper';\n\n// 2. Qdrant config\nconst client = new QdrantClient({ url: 'http://qdrant:6333' });\nconst collectionName = 'contextual_retrieval_example';\nconst limit = 20;\n\n// 3. Inputs\nconst embeddings = await this.getInputConnectionData('ai_embedding', 0);\nconst sparseVectorTool = await this.getInputConnectionData('ai_tool', 0);\n\n// 4. Tool definition\nconst vectorStoreTool = new DynamicTool({\n  name,\n  description,\n  func: async (input) => {\n    const denseVector = await embeddings.embedQuery(input);\n    const sparseVector = JSON.parse(await sparseVectorTool.invoke(input));\n\n    const response = await client.query(collectionName, {\n      prefetch: [\n        {\n          query: denseVector,\n          using: 'default',\n          limit: 100\n        },\n        {\n          query: sparseVector,\n          using: 'bm42',\n          limit: 100\n        }\n     ],\n     query: { fusion: 'rrf' },\n     with_payload: true,\n     limit,\n    });\n    \n    const docs = response.points.map(res => ({\n      pageContent: res.payload.content,\n      metadata: res.payload.metadata\n    }));\n    const retriever = BM25Retriever.fromDocuments(docs, { k: limit });\n    const rankedDocs = await retriever.invoke(query);\n    return JSON.stringify(rankedDocs);\n  }\n});\n\nreturn vectorStoreTool;"
+          }
+        },
+        "inputs": {
+          "input": [
+            {
+              "type": "ai_embedding",
+              "maxConnections": 1,
+              "required": true
+            },
+            {
+              "type": "ai_tool",
+              "maxConnections": 1,
+              "required": true
+            }
+          ]
+        },
+        "outputs": {
+          "output": [
+            {
+              "type": "ai_tool"
+            }
+          ]
+        }
+      },
+      "id": "897049da-3fed-4cc5-a719-94237fc2a231",
+      "name": "Qdrant with BM25 ReRank",
+      "type": "@n8n/n8n-nodes-langchain.code",
+      "typeVersion": 1,
+      "position": [
+        720,
+        1480
+      ]
+    },
+    {
+      "parameters": {
+        "code": {
+          "execute": {
+            "code": "const { QdrantClient } = require('@qdrant/js-client-rest');\nconst { BM25Retriever } = require(\"@langchain/community/retrievers/bm25\");\nconst { DynamicTool } = require(\"@langchain/core/tools\");\n\n// 1. Tool Config\nconst name = 'bitcoin_whitepaper_tool';\nconst description = 'Call this tool to get information and/or context from the Bitcoin Whitepaper';\n\n// 2. Qdrant config\nconst client = new QdrantClient({ url: 'http://qdrant:6333' });\nconst collectionName = 'contextual_retrieval_example';\nconst limit = 20;\n\n// 3. Inputs\nconst inputData = await this.getInputData();\nconst embeddings = await this.getInputConnectionData('ai_embedding', 0);\nconst sparseVectorTool = await this.getInputConnectionData('ai_tool', 0);\n\n// 4. Execute\nconst query = inputData[0].json.query;\n\nconst denseVector = await embeddings.embedQuery(query);\nconst sparseVector = JSON.parse(await sparseVectorTool.invoke(query));\n\nconst response = await client.query(collectionName, {\n  prefetch: [\n    {\n      query: denseVector,\n      using: 'default',\n      limit: 100\n    },\n    {\n      query: sparseVector,\n      using: 'bm42',\n      limit: 100\n    }\n ],\n query: { fusion: 'rrf' },\n with_payload: true,\n limit,\n});\n\nconst docs = response.points.map(res => ({\n  pageContent: res.payload.content,\n  metadata: res.payload.metadata\n}));\nconst retriever = BM25Retriever.fromDocuments(docs, { k: limit });\nconst rankedDocs = await retriever.invoke(query);\nreturn rankedDocs;"
+          }
+        },
+        "inputs": {
+          "input": [
+            {
+              "type": "main",
+              "maxConnections": 1,
+              "required": true
+            },
+            {
+              "type": "ai_embedding",
+              "maxConnections": 1,
+              "required": true
+            },
+            {
+              "type": "ai_tool",
+              "maxConnections": 1,
+              "required": true
+            }
+          ]
+        },
+        "outputs": {
+          "output": [
+            {
+              "type": "main"
+            }
+          ]
+        }
+      },
+      "id": "4d25f357-6526-46d7-a4af-3837e1545ae3",
+      "name": "Qdrant with BM25 ReRank1",
+      "type": "@n8n/n8n-nodes-langchain.code",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "code": {
+          "execute": {
+            "code": "const { randomUUID } = require('crypto') // Enable the crypto lib using env var NODE_FUNCTION_ALLOW_BUILTIN=crypto\nconst { QdrantClient } = require('@qdrant/js-client-rest');\n\n// 1. Qdrant config\nconst client = new QdrantClient({ url: 'http://qdrant:6333' });\nconst collectionName = 'contextual_retrieval_example';\n\n// 2. Inputs\nconst inputData = this.getInputData();\nconst embeddings = await this.getInputConnectionData('ai_embedding', 0);\nconst documentLoader = await this.getInputConnectionData('ai_document', 0);\n\n// 3. Run document loader\nconst docs = await documentLoader.processAll(inputData);\n\n// 4. generate points with sparse vectors\nconst points = [];\nlet vector = {};\nfor (let i=0,j=docs.length;i<j;i++) {\n  points.push({\n    id: randomUUID(),\n    vector: {\n      default: await embeddings.embedQuery(docs[i].pageContent),\n      bm42: inputData[i].json.sparse,\n    },\n    payload: {\n      content: docs[i].pageContent,\n      metadata: docs[i].metadata,\n    }\n  })\n}\n\n// 5. Delete existing vectors by title\nawait client.delete(collectionName, {\n  filter: {\n    must: [\n      {\n        key: \"metadata.title\",\n        match: { \"value\": docs[0].metadata.title }\n      }\n    ]\n  }\n});\n\n// 6. Upsert into Qdrant\nconst res = await client.upsert(collectionName, { points });\n\nreturn res;"
+          }
+        },
+        "inputs": {
+          "input": [
+            {
+              "type": "main",
+              "maxConnections": 1,
+              "required": true
+            },
+            {
+              "type": "ai_embedding",
+              "maxConnections": 1,
+              "required": true
+            },
+            {
+              "type": "ai_document",
+              "maxConnections": 1,
+              "required": true
+            }
+          ]
+        },
+        "outputs": {
+          "output": [
+            {
+              "type": "main"
+            }
+          ]
+        }
+      },
+      "id": "d0093fcb-9df2-40dc-af2b-4c871f232dd8",
+      "name": "Insert Documents with Sparse Vectors",
+      "type": "@n8n/n8n-nodes-langchain.code",
+      "typeVersion": 1,
+      "position": [
+        2840,
+        500
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Get Doc Attributes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Chunks From Doc": {
+      "main": [
+        [
+          {
+            "node": "Chunks To List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Insert Documents with Sparse Vectors",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sparse Vector Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Qdrant with BM25 ReRank",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query": {
+      "main": [
+        [
+          {
+            "node": "Qdrant with BM25 ReRank1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Sparse Vector Tool1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Qdrant with BM25 ReRank1",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunks To List": {
+      "main": [
+        [
+          {
+            "node": "Generate Contextual Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TF-IDF Sparse Vectors": {
+      "main": [
+        [
+          {
+            "node": "Get Values",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Values": {
+      "main": [
+        [
+          {
+            "node": "Insert Documents with Sparse Vectors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Generate Sparse Vectors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Contextual Text": {
+      "main": [
+        [
+          {
+            "node": "Generate TF-IDF Sparse Vectors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Document": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Doc Attributes": {
+      "main": [
+        [
+          {
+            "node": "Create Chunks From Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Get Doc Attributes",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Contextual Text",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Insert Documents with Sparse Vectors",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant with BM25 ReRank",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings Ollama2": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant with BM25 ReRank1",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant with BM25 ReRank": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "7229cb1a-277b-48ef-8fa2-ae637b066423",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9957daefeceb4b5af76d2a3a037e3937dc17d6f50ebfa393ed5f179ea7cf5980"
+  },
+  "id": "1gvkm7G0paH1e5sE",
+  "tags": []
+}
